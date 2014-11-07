@@ -31,7 +31,7 @@ class Thor
 
       def completion_proc
         if use_path_completion?
-          proc { |text| PathCompletion.new(text).matches }
+          proc { |text| PathCompletion.new(text, options[:additional_paths]).matches }
         elsif completion_options.any?
           proc do |text|
             completion_options.select { |option| option.start_with?(text) }
@@ -46,27 +46,32 @@ class Thor
       def use_path_completion?
         options.fetch(:path, false)
       end
-
+        
       class PathCompletion
         attr_reader :text
         private :text
 
-        def initialize(text)
+        def initialize(text, additional_paths)
           @text = text
+          @additional_paths = additional_paths
         end
 
         def matches
-          relative_matches
+          matches = Array.new
+          matches << relative_matches
+          @additional_paths.each { |path| matches << relative_matches(path)} unless @additional_paths.nil?
+          
+          matches.flatten
         end
 
       private
 
-        def relative_matches
-          absolute_matches.map { |path| path.sub(base_path, "") }
+        def relative_matches(filepath = nil)
+          absolute_matches(filepath).map { |path| path.sub(base_path(filepath), "") }
         end
 
-        def absolute_matches
-          Dir[glob_pattern].map do |path|
+        def absolute_matches(filepath)
+          Dir[glob_pattern(filepath)].map do |path|
             if File.directory?(path)
               "#{path}/"
             else
@@ -75,12 +80,12 @@ class Thor
           end
         end
 
-        def glob_pattern
-          "#{base_path}#{text}*"
+        def glob_pattern(filepath)
+          "#{base_path(filepath)}#{text}*"
         end
 
-        def base_path
-          "#{Dir.pwd}/"
+        def base_path(filepath = nil)
+          (filepath.nil? || !File.exists?(filepath)) ? "#{Dir.pwd}/" : "#{filepath}/"
         end
       end
     end
