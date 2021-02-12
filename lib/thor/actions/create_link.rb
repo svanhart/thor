@@ -1,4 +1,4 @@
-require "thor/actions/create_file"
+require_relative "create_file"
 
 class Thor
   module Actions
@@ -14,7 +14,7 @@ class Thor
     #
     #   create_link "config/apache.conf", "/etc/apache.conf"
     #
-    def create_link(destination, *args, &block)
+    def create_link(destination, *args)
       config = args.last.is_a?(Hash) ? args.pop : {}
       source = args.first
       action CreateLink.new(self, destination, source, config)
@@ -33,11 +33,13 @@ class Thor
       # Boolean:: true if it is identical, false otherwise.
       #
       def identical?
-        exists? && File.identical?(render, destination)
+        source = File.expand_path(render, File.dirname(destination))
+        exists? && File.identical?(source, destination)
       end
 
       def invoke!
         invoke_with_conflict_check do
+          require "fileutils"
           FileUtils.mkdir_p(File.dirname(destination))
           # Create a symlink by default
           config[:symbolic] = true if config[:symbolic].nil?

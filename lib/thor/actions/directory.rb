@@ -1,4 +1,4 @@
-require "thor/actions/empty_directory"
+require_relative "empty_directory"
 
 class Thor
   module Actions
@@ -56,7 +56,7 @@ class Thor
       attr_reader :source
 
       def initialize(base, source, destination = nil, config = {}, &block)
-        @source = File.expand_path(base.find_in_source_paths(source.to_s))
+        @source = File.expand_path(Dir[Util.escape_globs(base.find_in_source_paths(source.to_s))].first)
         @block  = block
         super(base, destination, {:recursive => true}.merge(config))
       end
@@ -72,7 +72,7 @@ class Thor
 
     protected
 
-      def execute! # rubocop:disable MethodLength
+      def execute!
         lookup = Util.escape_globs(source)
         lookup = config[:recursive] ? File.join(lookup, "**") : lookup
         lookup = file_level_lookup(lookup)
@@ -85,7 +85,7 @@ class Thor
 
           case file_source
           when /\.empty_directory$/
-            dirname = File.dirname(file_destination).gsub(/\/\.$/, "")
+            dirname = File.dirname(file_destination).gsub(%r{/\.$}, "")
             next if dirname == given_destination
             base.empty_directory(dirname, config)
           when /#{TEMPLATE_EXTNAME}$/
@@ -96,22 +96,12 @@ class Thor
         end
       end
 
-      if RUBY_VERSION < "2.0"
-        def file_level_lookup(previous_lookup)
-          File.join(previous_lookup, "{*,.[a-z]*}")
-        end
+      def file_level_lookup(previous_lookup)
+        File.join(previous_lookup, "*")
+      end
 
-        def files(lookup)
-          Dir[lookup]
-        end
-      else
-        def file_level_lookup(previous_lookup)
-          File.join(previous_lookup, "*")
-        end
-
-        def files(lookup)
-          Dir.glob(lookup, File::FNM_DOTMATCH)
-        end
+      def files(lookup)
+        Dir.glob(lookup, File::FNM_DOTMATCH)
       end
     end
   end

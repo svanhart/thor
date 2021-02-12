@@ -1,4 +1,4 @@
-require "thor/shell/basic"
+require_relative "basic"
 
 class Thor
   module Shell
@@ -97,7 +97,15 @@ class Thor
     protected
 
       def can_display_colors?
-        stdout.tty?
+        are_colors_supported? && !are_colors_disabled?
+      end
+
+      def are_colors_supported?
+        stdout.tty? && ENV["TERM"] != "dumb"
+      end
+
+      def are_colors_disabled?
+        !ENV['NO_COLOR'].nil?
       end
 
       # Overwrite show_diff to show diff with colors if Diff::LCS is
@@ -134,7 +142,7 @@ class Thor
       # for diff.
       #
       def diff_lcs_loaded? #:nodoc:
-        return true  if defined?(Diff::LCS)
+        return true if defined?(Diff::LCS)
         return @diff_lcs_loaded unless @diff_lcs_loaded.nil?
 
         @diff_lcs_loaded = begin

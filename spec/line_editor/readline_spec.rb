@@ -2,6 +2,8 @@ require "helper"
 
 describe Thor::LineEditor::Readline do
   before do
+    # Eagerly check Readline availability before mocking
+    Thor::LineEditor::Readline.available?
     unless defined? ::Readline
       ::Readline = double("Readline")
       allow(::Readline).to receive(:completion_append_character=).with(nil)
@@ -23,14 +25,14 @@ describe Thor::LineEditor::Readline do
   describe "#readline" do
     it "invokes the readline library" do
       expect(::Readline).to receive(:readline).with("> ", true).and_return("foo")
-      expect(::Readline).not_to receive(:completion_proc=)
+      expect(::Readline).to_not receive(:completion_proc=)
       editor = Thor::LineEditor::Readline.new("> ", {})
       expect(editor.readline).to eq("foo")
     end
 
     it "supports the add_to_history option" do
       expect(::Readline).to receive(:readline).with("> ", false).and_return("foo")
-      expect(::Readline).not_to receive(:completion_proc=)
+      expect(::Readline).to_not receive(:completion_proc=)
       editor = Thor::LineEditor::Readline.new("> ", :add_to_history => false)
       expect(editor.readline).to eq("foo")
     end
@@ -38,12 +40,12 @@ describe Thor::LineEditor::Readline do
     it "provides tab completion when given a limited_to option" do
       expect(::Readline).to receive(:readline)
       expect(::Readline).to receive(:completion_proc=) do |proc|
-        expect(proc.call("")).to eq %w[Apples Chicken Chocolate]
-        expect(proc.call("Ch")).to eq %w[Chicken Chocolate]
+        expect(proc.call("")).to eq %w(Apples Chicken Chocolate)
+        expect(proc.call("Ch")).to eq %w(Chicken Chocolate)
         expect(proc.call("Chi")).to eq ["Chicken"]
       end
 
-      editor = Thor::LineEditor::Readline.new("Best food: ", :limited_to => %w[Apples Chicken Chocolate])
+      editor = Thor::LineEditor::Readline.new("Best food: ", :limited_to => %w(Apples Chicken Chocolate))
       editor.readline
     end
 

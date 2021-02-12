@@ -1,15 +1,13 @@
 $TESTING = true
 
-if RUBY_VERSION >= '1.9'
-  require "simplecov"
-  require "coveralls"
+require "simplecov"
+require "coveralls"
 
-  SimpleCov.formatters = [SimpleCov::Formatter::HTMLFormatter, Coveralls::SimpleCov::Formatter]
+SimpleCov.formatters = [SimpleCov::Formatter::HTMLFormatter, Coveralls::SimpleCov::Formatter]
 
-  SimpleCov.start do
-    add_filter "/spec"
-    minimum_coverage(91.69)
-  end
+SimpleCov.start do
+  add_filter "/spec"
+  minimum_coverage(90)
 end
 
 $LOAD_PATH.unshift(File.join(File.dirname(__FILE__), "..", "lib"))
@@ -24,8 +22,8 @@ require "webmock/rspec"
 
 WebMock.disable_net_connect!(:allow => "coveralls.io")
 
-
 # Set shell to basic
+ENV["THOR_COLUMNS"] = "10000"
 $0 = "thor"
 $thor_runner = true
 ARGV.clear
@@ -72,10 +70,18 @@ RSpec.configure do |config|
   # This code was adapted from Ruby on Rails, available under MIT-LICENSE
   # Copyright (c) 2004-2013 David Heinemeier Hansson
   def silence_warnings
-    old_verbose, $VERBOSE = $VERBOSE, nil
+    old_verbose = $VERBOSE
+    $VERBOSE = nil
     yield
   ensure
     $VERBOSE = old_verbose
+  end
+
+  # true if running on windows, used for conditional spec skips
+  #
+  # @return [TrueClass/FalseClass]
+  def windows?
+    Gem.win_platform?
   end
 
   alias silence capture

@@ -1,3 +1,68 @@
+# 1.1.0
+* Don't use ANSI colors when terminal is dumb.
+* Ensure default option/argument is not erroneously aliased.
+* Fixes a bug in the calculation of the print_wrapped method.
+* Obey `:mute` and `options[:quiet]` in `Shell#say`.
+* Support Ruby 3.0.
+* Add force option to the `gsub_file` action.
+
+# 1.0.1
+* Fix thor when `thor/base` and `thor/group` are required without `thor.rb`.
+* Handle relative source path in `create_link`.
+
+# 1.0.0
+* Drop support to Ruby 1.8 and 1.9.
+* Deprecate relying on default `exit_on_failure?`.
+  In preparation to make Thor commands exit when there is a failure we are deprecating
+  defining a command without defining what behavior is expected when there is a failure.
+
+  To fix the deprecation you need to define a class method called `exit_on_failure?` returning
+
+  `false` if you want the current behavior or `true` if you want the new behavior.
+* Deprecate defining an option with the default value using a different type as defined in the option.
+* Allow options to be repeatable. See #674.
+
+# 0.20.3
+* Support old versions of `did_you_mean`.
+
+# 0.20.2
+* Fix `did_you_mean` support.
+
+# 0.20.1
+* Support new versions of ERB.
+* Fix `check_unknown_options!` to not check the content that was not parsed, i.e. after a `--` or after the first unknown with `stop_on_unknown_option!`
+* Add `did_you_mean` support.
+
+## 0.20.0
+* Add `check_default_type!` to check if the default value of an option matches the defined type.
+  It removes the warning on usage and gives the command authors the possibility to check for programming errors.
+
+* Add `disable_required_check!` to disable check for required options in some commands.
+  It is a substitute of `disable_class_options` that was not working as intended.
+
+* Add `inject_into_module`.
+
+## 0.19.4, release 2016-11-28
+* Rename `Thor::Base#thor_reserved_word?` to `#is_thor_reserved_word?`
+
+## 0.19.3, release 2016-11-27
+* Output a warning instead of raising an exception when a default option value doesn't match its specified type
+
+## 0.19.2, release 2016-11-26
+* Fix bug with handling of colors passed to `ask` (and methods like `yes?` and `no?` which it underpins)
+* Allow numeric arguments to be negative
+* Ensure that default option values are of the specified type (e.g. you can't specify `"foo"` as the default for a numeric option), but make symbols and strings interchangeable
+* Add `Thor::Shell::Basic#indent` method for intending output
+* Fix `remove_command` for an inherited command (see #451)
+* Allow hash arguments to only have each key provided once (see #455)
+* Allow commands to disable class options, for instance for "help" commands (see #363)
+* Do not generate a negative option (`--no-no-foo`) for already negative boolean options (`--no-foo`)
+* Improve compatibility of `Thor::CoreExt::HashWithIndifferentAccess` with Ruby standard library `Hash`
+* Allow specifying a custom binding for template evaluation (e.g. `#key?` and `#fetch`)
+* Fix support for subcommand-specific "help"s
+* Use a string buffer when handling ERB for Ruby 2.3 compatibility
+* Update dependencies
+
 ## 0.19.1, release 2014-03-24
 * Fix `say` non-String break regression
 

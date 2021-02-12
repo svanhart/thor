@@ -1,26 +1,35 @@
-require "thor/command"
-require "thor/core_ext/hash_with_indifferent_access"
-require "thor/core_ext/ordered_hash"
-require "thor/error"
-require "thor/invocation"
-require "thor/parser"
-require "thor/shell"
-require "thor/line_editor"
-require "thor/util"
+require_relative "command"
+require_relative "core_ext/hash_with_indifferent_access"
+require_relative "error"
+require_relative "invocation"
+require_relative "nested_context"
+require_relative "parser"
+require_relative "shell"
+require_relative "line_editor"
+require_relative "util"
 
 class Thor
-  autoload :Actions,    "thor/actions"
-  autoload :RakeCompat, "thor/rake_compat"
-  autoload :Group,      "thor/group"
+  autoload :Actions,    File.expand_path("actions", __dir__)
+  autoload :RakeCompat, File.expand_path("rake_compat", __dir__)
+  autoload :Group,      File.expand_path("group", __dir__)
 
   # Shortcuts for help.
-  HELP_MAPPINGS       = %w[-h -? --help -D]
+  HELP_MAPPINGS       = %w(-h -? --help -D)
 
   # Thor methods that should not be overwritten by the user.
-  THOR_RESERVED_WORDS = %w[invoke shell options behavior root destination_root relative_root
-                           action add_file create_file in_root inside run run_ruby_script]
+  THOR_RESERVED_WORDS = %w(invoke shell options behavior root destination_root relative_root
+                           action add_file create_file in_root inside run run_ruby_script)
 
   TEMPLATE_EXTNAME = ".tt"
+
+  class << self
+    def deprecation_warning(message) #:nodoc:
+      unless ENV['THOR_SILENCE_DEPRECATION']
+        warn "Deprecation warning: #{message}\n" +
+          'You can silence deprecations warning by setting the environment variable THOR_SILENCE_DEPRECATION.'
+      end
+    end
+  end
 
   module Base
     attr_accessor :options, :parent_options, :args
@@ -41,7 +50,7 @@ class Thor
     #
     # config<Hash>:: Configuration for this Thor class.
     #
-    def initialize(args = [], local_options = {}, config = {}) # rubocop:disable MethodLength
+    def initialize(args = [], local_options = {}, config = {})
       parse_options = self.class.class_options
 
       # The start method splits inbound arguments at the first argument
@@ -52,18 +61,21 @@ class Thor
       command_options = config.delete(:command_options) # hook for start
       parse_options = parse_options.merge(command_options) if command_options
       if local_options.is_a?(Array)
-        array_options, hash_options = local_options, {}
+        array_options = local_options
+        hash_options = {}
       else
         # Handle the case where the class was explicitly instantiated
         # with pre-parsed options.
-        array_options, hash_options = [], local_options
+        array_options = []
+        hash_options = local_options
       end
 
       # Let Thor::Options parse the options first, so it can remove
       # declared options from the array. This will leave us with
       # a list of arguments that weren't declared.
       stop_on_unknown = self.class.stop_on_unknown_option? config[:current_command]
-      opts = Thor::Options.new(parse_options, hash_options, stop_on_unknown)
+      disable_required_check = self.class.disable_required_check? config[:current_command]
+      opts = Thor::Options.new(parse_options, hash_options, stop_on_unknown, disable_required_check)
       self.options = opts.parse(array_options)
       self.options = config[:class_options].merge(options) if config[:class_options]
 
@@ -86,6 +98,7 @@ class Thor
 
     class << self
       def included(base) #:nodoc:
+        super(base)
         base.extend ClassMethods
         base.send :include, Invocation
         base.send :include, Shell
@@ -110,7 +123,7 @@ class Thor
       end
 
       # Whenever a class inherits from Thor or Thor::Group, we should track the
-      # class and the file on Thor::Base. This is the method responsable for it.
+      # class and the file on Thor::Base. This is the method responsible for it.
       #
       def register_klass_file(klass) #:nodoc:
         file = caller[1].match(/(.*):\d+/)[1]
@@ -148,10 +161,34 @@ class Thor
         !!check_unknown_options
       end
 
+      # If you want to raise an error when the default value of an option does not match
+      # the type call check_default_type!
+      # This will be the default; for compatibility a deprecation warning is issued if necessary.
+      def check_default_type!
+        @check_default_type = true
+      end
+
+      # If you want to use defaults that don't match the type of an option,
+      # either specify `check_default_type: false` or call `allow_incompatible_default_type!`
+      def allow_incompatible_default_type!
+        @check_default_type = false
+      end
+
+      def check_default_type #:nodoc:
+        @check_default_type = from_superclass(:check_default_type, nil) unless defined?(@check_default_type)
+        @check_default_type
+      end
+
       # If true, option parsing is suspended as soon as an unknown option or a
       # regular argument is encountered.  All remaining arguments are passed to
       # the command as regular arguments.
       def stop_on_unknown_option?(command_name) #:nodoc:
+        false
+      end
+
+      # If true, option set will not suspend the execution of the command when
+      # a required option is not provided.
+      def disable_required_check?(command_name) #:nodoc:
         false
       end
 
@@ -205,7 +242,7 @@ class Thor
       # ==== Errors
       # ArgumentError:: Raised if you supply a required argument after a non required one.
       #
-      def argument(name, options = {}) # rubocop:disable MethodLength
+      def argument(name, options = {})
         is_thor_reserved_word?(name, :argument)
         no_commands { attr_accessor name }
 
@@ -219,11 +256,13 @@ class Thor
 
         remove_argument name
 
-        arguments.each do |argument|
-          next if argument.required?
-          fail ArgumentError, "You cannot have #{name.to_s.inspect} as required argument after " <<
-                               "the non-required argument #{argument.human_name.inspect}."
-        end if required
+        if required
+          arguments.each do |argument|
+            next if argument.required?
+            raise ArgumentError, "You cannot have #{name.to_s.inspect} as required argument after " \
+                                "the non-required argument #{argument.human_name.inspect}."
+          end
+        end
 
         options[:required] = required
 
@@ -327,22 +366,22 @@ class Thor
       # Returns the commands for this Thor class.
       #
       # ==== Returns
-      # OrderedHash:: An ordered hash with commands names as keys and Thor::Command
-      #               objects as values.
+      # Hash:: An ordered hash with commands names as keys and Thor::Command
+      #        objects as values.
       #
       def commands
-        @commands ||= Thor::CoreExt::OrderedHash.new
+        @commands ||= Hash.new
       end
       alias_method :tasks, :commands
 
       # Returns the commands for this Thor class and all subclasses.
       #
       # ==== Returns
-      # OrderedHash:: An ordered hash with commands names as keys and Thor::Command
-      #               objects as values.
+      # Hash:: An ordered hash with commands names as keys and Thor::Command
+      #        objects as values.
       #
       def all_commands
-        @all_commands ||= from_superclass(:all_commands, Thor::CoreExt::OrderedHash.new)
+        @all_commands ||= from_superclass(:all_commands, Hash.new)
         @all_commands.merge!(commands)
       end
       alias_method :all_tasks, :all_commands
@@ -389,13 +428,19 @@ class Thor
       #     remove_command :this_is_not_a_command
       #   end
       #
-      def no_commands
-        @no_commands = true
-        yield
-      ensure
-        @no_commands = false
+      def no_commands(&block)
+        no_commands_context.enter(&block)
       end
+
       alias_method :no_tasks, :no_commands
+
+      def no_commands_context
+        @no_commands_context ||= NestedContext.new
+      end
+
+      def no_commands?
+        no_commands_context.entered?
+      end
 
       # Sets the namespace for the Thor or Thor::Group class. By default the
       # namespace is retrieved from the class name. If your Thor class is named
@@ -440,13 +485,13 @@ class Thor
         dispatch(nil, given_args.dup, nil, config)
       rescue Thor::Error => e
         config[:debug] || ENV["THOR_DEBUG"] == "1" ? (raise e) : config[:shell].error(e.message)
-        exit(1) if exit_on_failure?
+        exit(false) if exit_on_failure?
       rescue Errno::EPIPE
         # This happens if a thor command is piped to something like `head`,
         # which closes the pipe when it's done reading. This will also
         # mean that if the pipe is closed, further unnecessary
         # computation will not occur.
-        exit(0)
+        exit(true)
       end
 
       # Allows to use private methods from parent in child classes as commands.
@@ -467,20 +512,23 @@ class Thor
       alias_method :public_task, :public_command
 
       def handle_no_command_error(command, has_namespace = $thor_runner) #:nodoc:
-        if has_namespace
-          fail UndefinedCommandError, "Could not find command #{command.inspect} in #{namespace.inspect} namespace."
-        else
-          fail UndefinedCommandError, "Could not find command #{command.inspect}."
-        end
+        raise UndefinedCommandError.new(command, all_commands.keys, (namespace if has_namespace))
       end
       alias_method :handle_no_task_error, :handle_no_command_error
 
       def handle_argument_error(command, error, args, arity) #:nodoc:
-        msg = "ERROR: \"#{basename} #{command.name}\" was called with "
+        name = [command.ancestor_name, command.name].compact.join(" ")
+        msg = "ERROR: \"#{basename} #{name}\" was called with ".dup
         msg << "no arguments"               if     args.empty?
         msg << "arguments " << args.inspect unless args.empty?
-        msg << "\nUsage: #{banner(command).inspect}"
-        fail InvocationError, msg
+        msg << "\nUsage: \"#{banner(command).split("\n").join("\"\n       \"")}\""
+        raise InvocationError, msg
+      end
+
+      # A flag that makes the process exit with status 1 if any error happens.
+      def exit_on_failure?
+        Thor.deprecation_warning "Thor exit with status 0 on errors. To keep this behavior, you must define `exit_on_failure?` in `#{self.name}`"
+        false
       end
 
     protected
@@ -513,14 +561,13 @@ class Thor
         padding = options.map { |o| o.aliases.size }.max.to_i * 4
 
         options.each do |option|
-          unless option.hide
-            item = [option.usage(padding)]
-            item.push(option.description ? "# #{option.description}" : "")
+          next if option.hide
+          item = [option.usage(padding)]
+          item.push(option.description ? "# #{option.description}" : "")
 
-            list << item
-            list << ["", "# Default: #{option.default}"] if option.show_default?
-            list << ["", "# Possible values: #{option.enum.join(', ')}"] if option.enum
-          end
+          list << item
+          list << ["", "# Default: #{option.default}"] if option.show_default?
+          list << ["", "# Possible values: #{option.enum.join(', ')}"] if option.enum
         end
 
         shell.say(group_name ? "#{group_name} options:" : "Options:")
@@ -531,7 +578,7 @@ class Thor
       # Raises an error if the word given is a Thor reserved word.
       def is_thor_reserved_word?(word, type) #:nodoc:
         return false unless THOR_RESERVED_WORDS.include?(word.to_s)
-        fail "#{word.inspect} is a Thor reserved word and cannot be defined as #{type}"
+        raise "#{word.inspect} is a Thor reserved word and cannot be defined as #{type}"
       end
 
       # Build an option and adds it to the given scope.
@@ -541,7 +588,7 @@ class Thor
       # options<Hash>:: Described in both class_option and method_option.
       # scope<Hash>:: Options hash that is being built up
       def build_option(name, options, scope) #:nodoc:
-        scope[name] = Thor::Option.new(name, options)
+        scope[name] = Thor::Option.new(name, {:check_default_type => check_default_type}.merge!(options))
       end
 
       # Receives a hash of options, parse them and add to the scope. This is a
@@ -566,7 +613,7 @@ class Thor
         elsif command = all_commands[name.to_s] # rubocop:disable AssignmentInCondition
           commands[name.to_s] = command.clone
         else
-          fail ArgumentError, "You supplied :for => #{name.inspect}, but the command #{name.inspect} could not be found."
+          raise ArgumentError, "You supplied :for => #{name.inspect}, but the command #{name.inspect} could not be found."
         end
       end
       alias_method :find_and_refresh_task, :find_and_refresh_command
@@ -574,13 +621,15 @@ class Thor
       # Everytime someone inherits from a Thor class, register the klass
       # and file into baseclass.
       def inherited(klass)
+        super(klass)
         Thor::Base.register_klass_file(klass)
-        klass.instance_variable_set(:@no_commands, false)
+        klass.instance_variable_set(:@no_commands, 0)
       end
 
       # Fire this callback whenever a method is added. Added methods are
       # tracked as commands by invoking the create_command method.
       def method_added(meth)
+        super(meth)
         meth = meth.to_s
 
         if meth == "initialize"
@@ -591,8 +640,7 @@ class Thor
         # Return if it's not a public instance method
         return unless public_method_defined?(meth.to_sym)
 
-        @no_commands ||= false
-        return if @no_commands || !create_command(meth)
+        return if no_commands? || !create_command(meth)
 
         is_thor_reserved_word?(meth, :command)
         Thor::Base.register_klass_file(self)
@@ -617,11 +665,6 @@ class Thor
           end
 
         end
-      end
-
-      # A flag that makes the process exit with status 1 if any error happens.
-      def exit_on_failure?
-        false
       end
 
       #
@@ -649,7 +692,7 @@ class Thor
 
       # SIGNATURE: The hook invoked by start.
       def dispatch(command, given_args, given_opts, config) #:nodoc:
-        fail NotImplementedError
+        raise NotImplementedError
       end
     end
   end

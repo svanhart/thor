@@ -39,7 +39,7 @@ describe Thor::Actions do
     end
 
     it "when behavior is set to skip, overwrite options" do
-      runner = MyCounter.new([1], %w[--force], :behavior => :skip)
+      runner = MyCounter.new([1], %w(--force), :behavior => :skip)
       expect(runner.behavior).to eq(:invoke)
       expect(runner.options.force).not_to be true
       expect(runner.options.skip).to be true
@@ -86,6 +86,21 @@ describe Thor::Actions do
         expect(runner.relative_to_original_destination_root("/test/file")).to eq("/test/file")
       end
 
+      it "doesn't remove the root path from the absolute path if it is not at the begining" do
+        runner.destination_root = "/app"
+        expect(runner.relative_to_original_destination_root("/something/app/project")).to eq("/something/app/project")
+      end
+
+      it "doesn't removes the root path from the absolute path only if it is only the partial name of the directory" do
+        runner.destination_root = "/app"
+        expect(runner.relative_to_original_destination_root("/application/project")).to eq("/application/project")
+      end
+
+      it "removes the root path from the absolute path only once" do
+        runner.destination_root = "/app"
+        expect(runner.relative_to_original_destination_root("/app/app/project")).to eq("app/project")
+      end
+
       it "does not fail with files containing regexp characters" do
         runner = MyCounter.new([1], {}, :destination_root => File.join(destination_root, "fo[o-b]ar"))
         expect(runner.relative_to_original_destination_root("bar")).to eq("bar")
@@ -121,7 +136,7 @@ describe Thor::Actions do
 
       it "finds a template inside the source path" do
         expect(runner.find_in_source_paths("doc")).to eq(File.expand_path("doc", source_root))
-        expect { runner.find_in_source_paths("README") }.to raise_error
+        expect { runner.find_in_source_paths("README") }.to raise_error(Thor::Error, /Could not find "README" in any of your source paths./)
 
         new_path = File.join(source_root, "doc")
         runner.instance_variable_set(:@source_paths, nil)
@@ -204,7 +219,7 @@ describe Thor::Actions do
 
   describe "#apply" do
     before do
-      @template = <<-TEMPLATE
+      @template = <<-TEMPLATE.dup
         @foo = "FOO"
         say_status :cool, :padding
       TEMPLATE
@@ -216,13 +231,17 @@ describe Thor::Actions do
 
     it "accepts a URL as the path" do
       @file = "http://gist.github.com/103208.txt"
-      expect(runner).to receive(:open).with(@file, "Accept" => "application/x-thor-template").and_return(@template)
+      stub_request(:get, @file)
+
+      expect(runner).to receive(:apply).with(@file).and_return(@template)
       action(:apply, @file)
     end
 
     it "accepts a secure URL as the path" do
       @file = "https://gist.github.com/103208.txt"
-      expect(runner).to receive(:open).with(@file, "Accept" => "application/x-thor-template").and_return(@template)
+      stub_request(:get, @file)
+
+      expect(runner).to receive(:apply).with(@file).and_return(@template)
       action(:apply, @file)
     end
 
@@ -253,25 +272,79 @@ describe Thor::Actions do
   end
 
   describe "#run" do
-    before do
-      expect(runner).to receive(:system).with("ls")
+    describe "when not pretending" do
+      before do
+        expect(runner).to receive(:system).with("ls")
+      end
+
+      it "executes the command given" do
+        action :run, "ls"
+      end
+
+      it "logs status" do
+        expect(action(:run, "ls")).to eq("         run  ls from \".\"\n")
+      end
+
+      it "does not log status if required" do
+        expect(action(:run, "ls", :verbose => false)).to be_empty
+      end
+
+      it "accepts a color as status" do
+        expect(runner.shell).to receive(:say_status).with(:run, 'ls from "."', :yellow)
+        action :run, "ls", :verbose => :yellow
+      end
     end
 
-    it "executes the command given" do
-      action :run, "ls"
+    describe "when pretending" do
+      it "doesn't execute the command" do
+        runner = MyCounter.new([1], %w(--pretend))
+        expect(runner).not_to receive(:system)
+        runner.run("ls", :verbose => false)
+      end
     end
 
-    it "logs status" do
-      expect(action(:run, "ls")).to eq("         run  ls from \".\"\n")
+    describe "when not capturing" do
+      it "aborts when abort_on_failure is given and command fails" do
+        expect { action :run, "false", :abort_on_failure => true }.to raise_error(SystemExit)
+      end
+
+      it "succeeds when abort_on_failure is given and command succeeds" do
+        expect { action :run, "true", :abort_on_failure => true }.not_to raise_error
+      end
+
+      it "supports env option" do
+        expect { action :run, "echo $BAR", :env => { "BAR" => "foo" } }.to output("foo\n").to_stdout_from_any_process
+      end
     end
 
-    it "does not log status if required" do
-      expect(action(:run, "ls", :verbose => false)).to be_empty
+    describe "when capturing" do
+      it "aborts when abort_on_failure is given, capture is given and command fails" do
+        expect { action :run, "false", :abort_on_failure => true, :capture => true }.to raise_error(SystemExit)
+      end
+
+      it "succeeds when abort_on_failure is given and command succeeds" do
+        expect { action :run, "true", :abort_on_failure => true, :capture => true }.not_to raise_error
+      end
+
+      it "supports env option" do
+        silence(:stdout) do
+          expect(runner.run "echo $BAR", :env => { "BAR" => "foo" }, :capture => true).to eq("foo\n")
+        end
+      end
     end
 
-    it "accepts a color as status" do
-      expect(runner.shell).to receive(:say_status).with(:run, 'ls from "."', :yellow)
-      action :run, "ls", :verbose => :yellow
+    context "exit_on_failure? is true" do
+      before do
+        allow(MyCounter).to receive(:exit_on_failure?).and_return(true)
+      end
+
+      it "aborts when command fails even if abort_on_failure is not given" do
+        expect { action :run, "false" }.to raise_error(SystemExit)
+      end
+
+      it "does not abort when abort_on_failure is false even if the command fails" do
+        expect { action :run, "false", :abort_on_failure => false }.not_to raise_error
+      end
     end
   end
 
@@ -324,8 +397,8 @@ describe Thor::Actions do
     end
 
     it "captures the output when :capture is given" do
-      expect(runner).to receive(:`).with("thor foo bar")
-      action(:thor, "foo", "bar", :capture => true)
+      expect(runner).to receive(:run).with("list", hash_including(:capture => true))
+      action :thor, :list, :capture => true
     end
   end
 end

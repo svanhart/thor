@@ -11,7 +11,6 @@ describe Thor::Option do
   end
 
   describe "#parse" do
-
     describe "with value as a symbol" do
       describe "and symbol is a valid type" do
         it "has type equals to the symbol" do
@@ -135,16 +134,58 @@ describe Thor::Option do
     expect(option).to be_required
   end
 
-  it "raises an error if default is inconsistent with type" do
+  it "raises an error if default is inconsistent with type and check_default_type is true" do
     expect do
-      option = option("foo", :type => :numeric, :default => "bar")
-    end.to raise_error(ArgumentError, "An option's default must match its type.")
+      option("foo_bar", :type => :numeric, :default => "baz", :check_default_type => true)
+    end.to raise_error(ArgumentError, 'Expected numeric default value for \'--foo-bar\'; got "baz" (string)')
+  end
+
+  it "raises an error if repeatable and default is inconsistent with type and check_default_type is true" do
+    expect do
+      option("foo_bar", :type => :numeric, :repeatable => true, :default => "baz", :check_default_type => true)
+    end.to raise_error(ArgumentError, 'Expected array default value for \'--foo-bar\'; got "baz" (string)')
+  end
+
+  it "raises an error type hash is repeatable and default is inconsistent with type and check_default_type is true" do
+    expect do
+      option("foo_bar", :type => :hash, :repeatable => true, :default => "baz", :check_default_type => true)
+    end.to raise_error(ArgumentError, 'Expected hash default value for \'--foo-bar\'; got "baz" (string)')
+  end
+
+  it "does not raises an error if type hash is repeatable and default is consistent with type and check_default_type is true" do
+    expect do
+      option("foo_bar", :type => :hash, :repeatable => true, :default => {}, :check_default_type => true)
+    end.not_to raise_error
+  end
+
+  it "does not raises an error if repeatable and default is consistent with type and check_default_type is true" do
+    expect do
+      option("foo_bar", :type => :numeric, :repeatable => true, :default => [1], :check_default_type => true)
+    end.not_to raise_error
+  end
+
+  it "does not raises an error if default is an symbol and type string and check_default_type is true" do
+    expect do
+      option("foo", :type => :string, :default => :bar, :check_default_type => true)
+    end.not_to raise_error
+  end
+
+  it "does not raises an error if default is inconsistent with type and check_default_type is false" do
+    expect do
+      option("foo_bar", :type => :numeric, :default => "baz", :check_default_type => false)
+    end.not_to raise_error
   end
 
   it "boolean options cannot be required" do
     expect do
       option("foo", :required => true, :type => :boolean)
     end.to raise_error(ArgumentError, "An option cannot be boolean and required.")
+  end
+
+  it "does not raises an error if default is a boolean and it is required" do
+    expect do
+      option("foo", :required => true, :default => true)
+    end.not_to raise_error
   end
 
   it "allows type predicates" do
@@ -160,7 +201,6 @@ describe Thor::Option do
   end
 
   describe "#usage" do
-
     it "returns usage for string types" do
       expect(parse(:foo, :string).usage).to eq("[--foo=FOO]")
     end
@@ -187,6 +227,14 @@ describe Thor::Option do
 
     it "documents a negative option when boolean" do
       expect(parse(:foo, :boolean).usage).to include("[--no-foo]")
+    end
+
+    it "does not document a negative option for a negative boolean" do
+      expect(parse(:'no-foo', :boolean).usage).not_to include("[--no-no-foo]")
+    end
+
+    it "documents a negative option for a positive boolean starting with 'no'" do
+      expect(parse(:'nougat', :boolean).usage).to include("[--no-nougat]")
     end
 
     it "uses banner when supplied" do

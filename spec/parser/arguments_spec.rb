@@ -37,7 +37,13 @@ describe Thor::Arguments do
     it "accepts arrays" do
       create :string => nil, :array => nil
       expect(parse("product", "title", "age")["string"]).to eq("product")
-      expect(parse("product", "title", "age")["array"]).to eq(%w[title age])
+      expect(parse("product", "title", "age")["array"]).to eq(%w(title age))
+    end
+
+    it "accepts - as an array argument" do
+      create :array => nil
+      expect(parse("-")["array"]).to eq(%w(-))
+      expect(parse("-", "title", "-")["array"]).to eq(%w(- title -))
     end
 
     describe "with no inputs" do

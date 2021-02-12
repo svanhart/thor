@@ -14,23 +14,24 @@ class Thor
         when true
           "--#{key}"
         when Array
-          "--#{key} #{value.map { |v| v.inspect }.join(' ')}"
+          "--#{key} #{value.map(&:inspect).join(' ')}"
         when Hash
           "--#{key} #{value.map { |k, v| "#{k}:#{v}" }.join(' ')}"
         when nil, false
-          ""
+          nil
         else
           "--#{key} #{value.inspect}"
         end
-      end.join(" ")
+      end.compact.join(" ")
     end
 
     # Takes a hash of Thor::Option and a hash with defaults.
     #
     # If +stop_on_unknown+ is true, #parse will stop as soon as it encounters
     # an unknown option or a regular argument.
-    def initialize(hash_options = {}, defaults = {}, stop_on_unknown = false)
+    def initialize(hash_options = {}, defaults = {}, stop_on_unknown = false, disable_required_check = false)
       @stop_on_unknown = stop_on_unknown
+      @disable_required_check = disable_required_check
       options = hash_options.values
       super(options)
 
@@ -40,7 +41,10 @@ class Thor
         @non_assigned_required.delete(hash_options[key])
       end
 
-      @shorts, @switches, @extra = {}, {}, []
+      @shorts = {}
+      @switches = {}
+      @extra = []
+      @stopped_parsing_after_extra_index = nil
 
       options.each do |option|
         @switches[option.switch_name] = option
@@ -52,7 +56,7 @@ class Thor
       end
     end
 
-    def remaining # rubocop:disable TrivialAccessors
+    def remaining
       @extra
     end
 
@@ -63,6 +67,7 @@ class Thor
       if result == OPTS_END
         shift
         @parsing_options = false
+        @stopped_parsing_after_extra_index ||= @extra.size
         super
       else
         result
@@ -92,10 +97,12 @@ class Thor
 
             switch = normalize_switch(switch)
             option = switch_option(switch)
-            @assigns[option.human_name] = parse_peek(switch, option)
+            result = parse_peek(switch, option)
+            assign_result!(option, result)
           elsif @stop_on_unknown
             @parsing_options = false
             @extra << shifted
+            @stopped_parsing_after_extra_index ||= @extra.size
             @extra << shift while peek
             break
           elsif match
@@ -109,7 +116,7 @@ class Thor
         end
       end
 
-      check_requirement!
+      check_requirement! unless @disable_required_check
 
       assigns = Thor::CoreExt::HashWithIndifferentAccess.new(@assigns)
       assigns.freeze
@@ -117,12 +124,24 @@ class Thor
     end
 
     def check_unknown!
+      to_check = @stopped_parsing_after_extra_index ? @extra[0...@stopped_parsing_after_extra_index] : @extra
+
       # an unknown option starts with - or -- and has no more --'s afterward.
-      unknown = @extra.select { |str| str =~ /^--?(?:(?!--).)*$/ }
-      fail UnknownArgumentError, "Unknown switches '#{unknown.join(', ')}'" unless unknown.empty?
+      unknown = to_check.select { |str| str =~ /^--?(?:(?!--).)*$/ }
+      raise UnknownArgumentError.new(@switches.keys, unknown) unless unknown.empty?
     end
 
   protected
+
+    def assign_result!(option, result)
+      if option.repeatable && option.type == :hash
+        (@assigns[option.human_name] ||= {}).merge!(result)
+      elsif option.repeatable
+        (@assigns[option.human_name] ||= []) << result
+      else
+        @assigns[option.human_name] = result
+      end
+    end
 
     # Check if the current value in peek is a registered switch.
     #
@@ -153,7 +172,7 @@ class Thor
     end
 
     def switch?(arg)
-      switch_option(normalize_switch(arg))
+      !switch_option(normalize_switch(arg)).nil?
     end
 
     def switch_option(arg)
@@ -186,7 +205,7 @@ class Thor
           shift
           false
         else
-          true
+          @switches.key?(switch) || !no_or_skip?(switch)
         end
       else
         @switches.key?(switch) || !no_or_skip?(switch)
@@ -207,7 +226,7 @@ class Thor
         elsif option.lazy_default
           return option.lazy_default
         else
-          fail MalformattedArgumentError, "No value provided for option '#{switch}'"
+          raise MalformattedArgumentError, "No value provided for option '#{switch}'"
         end
       end
 

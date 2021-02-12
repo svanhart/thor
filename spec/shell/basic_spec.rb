@@ -16,6 +16,35 @@ describe Thor::Shell::Basic do
     end
   end
 
+  describe "#indent" do
+    it "sets the padding temporarily" do
+      shell.indent { expect(shell.padding).to eq(1) }
+      expect(shell.padding).to eq(0)
+    end
+
+    it "derives padding from original value" do
+      shell.padding = 6
+      shell.indent { expect(shell.padding).to eq(7) }
+    end
+
+    it "accepts custom indentation amounts" do
+      shell.indent(6) do
+        expect(shell.padding).to eq(6)
+      end
+    end
+
+    it "increases the padding when nested" do
+      shell.indent do
+        expect(shell.padding).to eq(1)
+
+        shell.indent do
+          expect(shell.padding).to eq(2)
+        end
+      end
+      expect(shell.padding).to eq(0)
+    end
+  end
+
   describe "#ask" do
     it "prints a message to the user and gets the response" do
       expect(Thor::LineEditor).to receive(:readline).with("Should I overwrite it? ", {}).and_return("Sure")
@@ -39,17 +68,37 @@ describe Thor::Shell::Basic do
       expect(shell.ask("What's your password?", :echo => false)).to eq("mysecretpass")
     end
 
-    it "prints a message to the user with the available options and determines the correctness of the answer" do
-      flavors = %w[strawberry chocolate vanilla]
+    it "prints a message to the user with the available options, expects case-sensitive matching, and determines the correctness of the answer" do
+      flavors = %w(strawberry chocolate vanilla)
       expect(Thor::LineEditor).to receive(:readline).with('What\'s your favorite Neopolitan flavor? [strawberry, chocolate, vanilla] ', :limited_to => flavors).and_return("chocolate")
       expect(shell.ask('What\'s your favorite Neopolitan flavor?', :limited_to => flavors)).to eq("chocolate")
     end
 
-    it "prints a message to the user with the available options and reasks the question after an incorrect repsonse" do
-      flavors = %w[strawberry chocolate vanilla]
+    it "prints a message to the user with the available options, expects case-sensitive matching, and reasks the question after an incorrect response" do
+      flavors = %w(strawberry chocolate vanilla)
       expect($stdout).to receive(:print).with("Your response must be one of: [strawberry, chocolate, vanilla]. Please try again.\n")
       expect(Thor::LineEditor).to receive(:readline).with('What\'s your favorite Neopolitan flavor? [strawberry, chocolate, vanilla] ', :limited_to => flavors).and_return("moose tracks", "chocolate")
       expect(shell.ask('What\'s your favorite Neopolitan flavor?', :limited_to => flavors)).to eq("chocolate")
+    end
+
+    it "prints a message to the user with the available options, expects case-sensitive matching, and reasks the question after a case-insensitive match" do
+      flavors = %w(strawberry chocolate vanilla)
+      expect($stdout).to receive(:print).with("Your response must be one of: [strawberry, chocolate, vanilla]. Please try again.\n")
+      expect(Thor::LineEditor).to receive(:readline).with('What\'s your favorite Neopolitan flavor? [strawberry, chocolate, vanilla] ', :limited_to => flavors).and_return("cHoCoLaTe", "chocolate")
+      expect(shell.ask('What\'s your favorite Neopolitan flavor?', :limited_to => flavors)).to eq("chocolate")
+    end
+
+    it "prints a message to the user with the available options, expects case-insensitive matching, and determines the correctness of the answer" do
+      flavors = %w(strawberry chocolate vanilla)
+      expect(Thor::LineEditor).to receive(:readline).with('What\'s your favorite Neopolitan flavor? [strawberry, chocolate, vanilla] ', :limited_to => flavors, :case_insensitive => true).and_return("CHOCOLATE")
+      expect(shell.ask('What\'s your favorite Neopolitan flavor?', :limited_to => flavors, :case_insensitive => true)).to eq("chocolate")
+    end
+
+    it "prints a message to the user with the available options, expects case-insensitive matching, and reasks the question after an incorrect response" do
+      flavors = %w(strawberry chocolate vanilla)
+      expect($stdout).to receive(:print).with("Your response must be one of: [strawberry, chocolate, vanilla]. Please try again.\n")
+      expect(Thor::LineEditor).to receive(:readline).with('What\'s your favorite Neopolitan flavor? [strawberry, chocolate, vanilla] ', :limited_to => flavors, :case_insensitive => true).and_return("moose tracks", "chocolate")
+      expect(shell.ask('What\'s your favorite Neopolitan flavor?', :limited_to => flavors, :case_insensitive => true)).to eq("chocolate")
     end
 
     it "prints a message to the user containing a default and sets the default if only enter is pressed" do
@@ -57,8 +106,8 @@ describe Thor::Shell::Basic do
       expect(shell.ask('What\'s your favorite Neopolitan flavor?', :default => "vanilla")).to eq("vanilla")
     end
 
-    it "prints a message to the user with the available options and reasks the question after an incorrect repsonse and then returns the default" do
-      flavors = %w[strawberry chocolate vanilla]
+    it "prints a message to the user with the available options and reasks the question after an incorrect response and then returns the default" do
+      flavors = %w(strawberry chocolate vanilla)
       expect($stdout).to receive(:print).with("Your response must be one of: [strawberry, chocolate, vanilla]. Please try again.\n")
       expect(Thor::LineEditor).to receive(:readline).with('What\'s your favorite Neopolitan flavor? [strawberry, chocolate, vanilla] (vanilla) ', :default => "vanilla", :limited_to => flavors).and_return("moose tracks", "")
       expect(shell.ask("What's your favorite Neopolitan flavor?", :default => "vanilla", :limited_to => flavors)).to eq("vanilla")
@@ -123,6 +172,61 @@ describe Thor::Shell::Basic do
     it "coerces everything to a string before printing" do
       expect($stdout).to receive(:print).with("this_is_not_a_string\n")
       shell.say(:this_is_not_a_string, nil, true)
+    end
+
+    it "does not print a message if muted" do
+      expect($stdout).not_to receive(:print)
+      shell.mute do
+        shell.say("Running...")
+      end
+    end
+
+    it "does not print a message if base is set to quiet" do
+      shell.base = MyCounter.new [1, 2]
+      expect(shell.base).to receive(:options).and_return(:quiet => true)
+
+      expect($stdout).not_to receive(:print)
+      shell.say("Running...")
+    end
+  end
+
+  describe "#print_wrapped" do
+    let(:message) do
+      "Creates a back-up of the given folder by compressing it in a .tar.gz\n"\
+      "file and then uploading it to the configured Amazon S3 Bucket.\n\n"\
+      "It does not verify the integrity of the generated back-up."
+    end
+
+    before do
+      allow(ENV).to receive(:[]).with("THOR_COLUMNS").and_return(80)
+    end
+
+    context "without indentation" do
+      subject(:wrap_text) { described_class.new.print_wrapped(message) }
+
+      let(:expected_output) do
+        "Creates a back-up of the given folder by compressing it in a .tar.gz file and\n"\
+        "then uploading it to the configured Amazon S3 Bucket.\n\n"\
+        "It does not verify the integrity of the generated back-up.\n"
+      end
+
+      it "properly wraps the text around the 80th column" do
+        expect { wrap_text }.to output(expected_output).to_stdout
+      end
+    end
+
+    context "with indentation" do
+      subject(:wrap_text) { described_class.new.print_wrapped(message, :indent => 4) }
+
+      let(:expected_output) do
+        "    Creates a back-up of the given folder by compressing it in a .tar.gz file\n"\
+        "    and then uploading it to the configured Amazon S3 Bucket.\n\n"\
+        "    It does not verify the integrity of the generated back-up.\n"
+      end
+
+      it "properly wraps the text around the 80th column" do
+        expect { wrap_text }.to output(expected_output).to_stdout
+      end
     end
   end
 
@@ -281,6 +385,12 @@ TABLE
       shell.file_collision("foo")
     end
 
+    it "outputs a new line and returns true if stdin is closed" do
+      expect($stdout).to receive(:print).with("\n")
+      expect(Thor::LineEditor).to receive(:readline).and_return(nil)
+      expect(shell.file_collision("foo")).to be true
+    end
+
     it "returns true if the user chooses default option" do
       expect(Thor::LineEditor).to receive(:readline).and_return("")
       expect(shell.file_collision("foo")).to be true
@@ -321,8 +431,8 @@ TABLE
     end
 
     describe "when a block is given" do
-      it "displays diff options to the user" do
-        expect(Thor::LineEditor).to receive(:readline).with('Overwrite foo? (enter "h" for help) [Ynaqdh] ', :add_to_history => false).and_return("s")
+      it "displays diff and merge options to the user" do
+        expect(Thor::LineEditor).to receive(:readline).with('Overwrite foo? (enter "h" for help) [Ynaqdhm] ', :add_to_history => false).and_return("s")
         shell.file_collision("foo") {}
       end
 
@@ -331,6 +441,28 @@ TABLE
         expect(Thor::LineEditor).to receive(:readline).and_return("n")
         expect(shell).to receive(:system).with(/diff -u/)
         capture(:stdout) { shell.file_collision("foo") {} }
+      end
+
+      it "invokes the merge tool" do
+        allow(shell).to receive(:merge_tool).and_return("meld")
+        expect(Thor::LineEditor).to receive(:readline).and_return("m")
+        expect(shell).to receive(:system).with(/meld/)
+        capture(:stdout) { shell.file_collision("foo") {} }
+      end
+
+      it "invokes the merge tool that specified at ENV['THOR_MERGE']" do
+        allow(ENV).to receive(:[]).with("THOR_MERGE").and_return("meld")
+        expect(Thor::LineEditor).to receive(:readline).and_return("m")
+        expect(shell).to receive(:system).with(/meld/)
+        capture(:stdout) { shell.file_collision("foo") {} }
+      end
+
+      it "show warning if user chooses merge but merge tool is not specified" do
+        allow(shell).to receive(:merge_tool).and_return("")
+        expect(Thor::LineEditor).to receive(:readline).and_return("m")
+        expect(Thor::LineEditor).to receive(:readline).and_return("n")
+        help = capture(:stdout) { shell.file_collision("foo") {} }
+        expect(help).to match(/Please specify merge tool to `THOR_MERGE` env/)
       end
     end
   end

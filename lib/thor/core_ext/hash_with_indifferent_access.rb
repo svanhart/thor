@@ -28,6 +28,20 @@ class Thor
         super(convert_key(key))
       end
 
+      def except(*keys)
+        dup.tap do |hash|
+          keys.each { |key| hash.delete(convert_key(key)) }
+        end
+      end
+
+      def fetch(key, *args)
+        super(convert_key(key), *args)
+      end
+
+      def key?(key)
+        super(convert_key(key))
+      end
+
       def values_at(*indices)
         indices.map { |key| self[convert_key(key)] }
       end
@@ -41,6 +55,18 @@ class Thor
           self[convert_key(key)] = value
         end
         self
+      end
+
+      def reverse_merge(other)
+        self.class.new(other).merge(self)
+      end
+
+      def reverse_merge!(other_hash)
+        replace(reverse_merge(other_hash))
+      end
+
+      def replace(other_hash)
+        super(other_hash)
       end
 
       # Convert to a Hash with String keys.
@@ -60,7 +86,7 @@ class Thor
       #   options.shebang                 # => "/usr/lib/local/ruby"
       #   options.test_framework?(:rspec) # => options[:test_framework] == :rspec
       #
-      def method_missing(method, *args, &block)
+      def method_missing(method, *args)
         method = method.to_s
         if method =~ /^(\w+)\?$/
           if args.empty?

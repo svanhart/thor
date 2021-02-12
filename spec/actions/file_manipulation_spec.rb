@@ -1,10 +1,11 @@
 require "helper"
 
 class Application; end
+module ApplicationHelper; end
 
 describe Thor::Actions do
-  def runner(options = {})
-    @runner ||= MyCounter.new([1], options, :destination_root => destination_root)
+  def runner(options = {}, behavior = :invoke)
+    @runner ||= MyCounter.new([1], options, :destination_root => destination_root, :behavior => behavior)
   end
 
   def action(*args, &block)
@@ -29,23 +30,23 @@ describe Thor::Actions do
 
   describe "#chmod" do
     it "executes the command given" do
-      expect(FileUtils).to receive(:chmod_R).with(0755, file) # rubocop:disable SymbolName
+      expect(FileUtils).to receive(:chmod_R).with(0755, file)
       action :chmod, "foo", 0755
     end
 
     it "does not execute the command if pretending" do
-      expect(FileUtils).not_to receive(:chmod_R) # rubocop:disable SymbolName
+      expect(FileUtils).not_to receive(:chmod_R)
       runner(:pretend => true)
       action :chmod, "foo", 0755
     end
 
     it "logs status" do
-      expect(FileUtils).to receive(:chmod_R).with(0755, file) # rubocop:disable SymbolName
+      expect(FileUtils).to receive(:chmod_R).with(0755, file)
       expect(action(:chmod, "foo", 0755)).to eq("       chmod  foo\n")
     end
 
     it "does not log status if required" do
-      expect(FileUtils).to receive(:chmod_R).with(0755, file) # rubocop:disable SymbolName
+      expect(FileUtils).to receive(:chmod_R).with(0755, file)
       expect(action(:chmod, "foo", 0755, :verbose => false)).to be_empty
     end
   end
@@ -75,6 +76,14 @@ describe Thor::Actions do
       expect(File.stat(original).mode).to eq(File.stat(copy).mode)
     end
 
+    it "copies file from source to default destination and preserves file mode for templated filenames" do
+      expect(runner).to receive(:filename).and_return("app")
+      action :copy_file, "preserve/%filename%.sh", :mode => :preserve
+      original = File.join(source_root, "preserve/%filename%.sh")
+      copy = File.join(destination_root, "preserve/app.sh")
+      expect(File.stat(original).mode).to eq(File.stat(copy).mode)
+    end
+
     it "logs status" do
       expect(action(:copy_file, "command.thor")).to eq("      create  command.thor\n")
     end
@@ -87,7 +96,7 @@ describe Thor::Actions do
     end
   end
 
-  describe "#link_file" do
+  describe "#link_file", :unless => windows? do
     it "links file from source to default destination" do
       action :link_file, "command.thor"
       exists_and_identical?("command.thor", "command.thor")
@@ -122,7 +131,7 @@ describe Thor::Actions do
     end
 
     it "allows the destination to be set as a block result" do
-      action(:get, "doc/README") { |c| "docs/README" }
+      action(:get, "doc/README") { "docs/README" }
       exists_and_identical?("doc/README", "docs/README")
     end
 
@@ -138,7 +147,7 @@ describe Thor::Actions do
 
     it "accepts http remote sources" do
       body = "__start__\nHTTPFILE\n__end__\n"
-      stub_request(:get, "http://example.com/file.txt").to_return(:body => body)
+      stub_request(:get, "http://example.com/file.txt").to_return(:body => body.dup)
       action :get, "http://example.com/file.txt" do |content|
         expect(a_request(:get, "http://example.com/file.txt")).to have_been_made
         expect(content).to eq(body)
@@ -147,7 +156,7 @@ describe Thor::Actions do
 
     it "accepts https remote sources" do
       body = "__start__\nHTTPSFILE\n__end__\n"
-      stub_request(:get, "https://example.com/file.txt").to_return(:body => body)
+      stub_request(:get, "https://example.com/file.txt").to_return(:body => body.dup)
       action :get, "https://example.com/file.txt" do |content|
         expect(a_request(:get, "https://example.com/file.txt")).to have_been_made
         expect(content).to eq(body)
@@ -205,11 +214,33 @@ describe Thor::Actions do
       expect(File.read(File.join(destination_root, "doc/config.rb"))).to match(/^OMG/)
     end
 
+    it "accepts a context to use as the binding" do
+      begin
+        @klass = "FooBar"
+        action :template, "doc/config.rb", :context => eval("binding")
+        expect(File.read(File.join(destination_root, "doc/config.rb"))).to eq("class FooBar; end\n")
+      ensure
+        remove_instance_variable(:@klass)
+      end
+    end
+
     it "guesses the destination name when given only a source" do
       action :template, "doc/config.yaml.tt"
 
       file = File.join(destination_root, "doc/config.yaml")
       expect(File.exist?(file)).to be true
+    end
+
+    it "has proper ERB stacktraces" do
+      error = nil
+      begin
+        action :template, "template/bad_config.yaml.tt"
+      rescue => e
+        error = e
+      end
+
+      expect(error).to be_a NameError
+      expect(error.backtrace.to_s).to include("bad_config.yaml.tt:2")
     end
   end
 
@@ -249,28 +280,92 @@ describe Thor::Actions do
     end
 
     describe "#gsub_file" do
-      it "replaces the content in the file" do
-        action :gsub_file, "doc/README", "__start__", "START"
-        expect(File.binread(file)).to eq("START\nREADME\n__end__\n")
+      context "with invoke behavior" do
+        it "replaces the content in the file" do
+          action :gsub_file, "doc/README", "__start__", "START"
+          expect(File.binread(file)).to eq("START\nREADME\n__end__\n")
+        end
+
+        it "does not replace if pretending" do
+          runner(:pretend => true)
+          action :gsub_file, "doc/README", "__start__", "START"
+          expect(File.binread(file)).to eq("__start__\nREADME\n__end__\n")
+        end
+
+        it "accepts a block" do
+          action(:gsub_file, "doc/README", "__start__") { |match| match.gsub("__", "").upcase }
+          expect(File.binread(file)).to eq("START\nREADME\n__end__\n")
+        end
+
+        it "logs status" do
+          expect(action(:gsub_file, "doc/README", "__start__", "START")).to eq("        gsub  doc/README\n")
+        end
+
+        it "does not log status if required" do
+          expect(action(:gsub_file, file, "__", :verbose => false) { |match| match * 2 }).to be_empty
+        end
       end
 
-      it "does not replace if pretending" do
-        runner(:pretend => true)
-        action :gsub_file, "doc/README", "__start__", "START"
-        expect(File.binread(file)).to eq("__start__\nREADME\n__end__\n")
-      end
+      context "with revoke behavior" do
+        context "and no force option" do
+          it "does not replace the content in the file" do
+            runner({}, :revoke)
+            action :gsub_file, "doc/README", "__start__", "START"
+            expect(File.binread(file)).to eq("__start__\nREADME\n__end__\n")
+          end
 
-      it "accepts a block" do
-        action(:gsub_file, "doc/README", "__start__") { |match| match.gsub("__", "").upcase  }
-        expect(File.binread(file)).to eq("START\nREADME\n__end__\n")
-      end
+          it "does not replace if pretending" do
+            runner({ :pretend => true }, :revoke)
+            action :gsub_file, "doc/README", "__start__", "START"
+            expect(File.binread(file)).to eq("__start__\nREADME\n__end__\n")
+          end
 
-      it "logs status" do
-        expect(action(:gsub_file, "doc/README", "__start__", "START")).to eq("        gsub  doc/README\n")
-      end
+          it "does not replace the content in the file when given a block" do
+            runner({}, :revoke)
+            action(:gsub_file, "doc/README", "__start__") { |match| match.gsub("__", "").upcase }
+            expect(File.binread(file)).to eq("__start__\nREADME\n__end__\n")
+          end
 
-      it "does not log status if required" do
-        expect(action(:gsub_file, file, "__", :verbose => false) { |match| match * 2 }).to be_empty
+          it "does not log status" do
+            runner({}, :revoke)
+            expect(action(:gsub_file, "doc/README", "__start__", "START")).to be_empty
+          end
+
+          it "does not log status if required" do
+            runner({}, :revoke)
+            expect(action(:gsub_file, file, "__", :verbose => false) { |match| match * 2 }).to be_empty
+          end
+        end
+
+        context "and force option" do
+          it "replaces the content in the file" do
+            runner({}, :revoke)
+            action :gsub_file, "doc/README", "__start__", "START", :force => true
+            expect(File.binread(file)).to eq("START\nREADME\n__end__\n")
+          end
+
+          it "does not replace if pretending" do
+            runner({ :pretend => true }, :revoke)
+            action :gsub_file, "doc/README", "__start__", "START", :force => true
+            expect(File.binread(file)).to eq("__start__\nREADME\n__end__\n")
+          end
+
+          it "replaces the content in the file when given a block" do
+            runner({}, :revoke)
+            action(:gsub_file, "doc/README", "__start__", :force => true) { |match| match.gsub("__", "").upcase }
+            expect(File.binread(file)).to eq("START\nREADME\n__end__\n")
+          end
+
+          it "logs status" do
+            runner({}, :revoke)
+            expect(action(:gsub_file, "doc/README", "__start__", "START", :force => true)).to eq("        gsub  doc/README\n")
+          end
+
+          it "does not log status if required" do
+            runner({}, :revoke)
+            expect(action(:gsub_file, file, "__", :verbose => false, :force => true) { |match| match * 2 }).to be_empty
+          end
+        end
       end
     end
 
@@ -328,6 +423,31 @@ describe Thor::Actions do
       it "does not append if class name does not match" do
         action :inject_into_class, "application.rb", "App", "  filter_parameters :password\n"
         expect(File.binread(file)).to eq("class Application < Base\nend\n")
+      end
+    end
+
+    describe "#inject_into_module" do
+      def file
+        File.join(destination_root, "application_helper.rb")
+      end
+
+      it "appends content to a module" do
+        action :inject_into_module, "application_helper.rb", ApplicationHelper, "  def help; 'help'; end\n"
+        expect(File.binread(file)).to eq("module ApplicationHelper\n  def help; 'help'; end\nend\n")
+      end
+
+      it "accepts a block" do
+        action(:inject_into_module, "application_helper.rb", ApplicationHelper) { "  def help; 'help'; end\n" }
+        expect(File.binread(file)).to eq("module ApplicationHelper\n  def help; 'help'; end\nend\n")
+      end
+
+      it "logs status" do
+        expect(action(:inject_into_module, "application_helper.rb", ApplicationHelper, "  def help; 'help'; end\n")).to eq("      insert  application_helper.rb\n")
+      end
+
+      it "does not append if module name does not match" do
+        action :inject_into_module, "application_helper.rb", "App", "  def help; 'help'; end\n"
+        expect(File.binread(file)).to eq("module ApplicationHelper\nend\n")
       end
     end
   end

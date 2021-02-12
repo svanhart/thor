@@ -6,7 +6,6 @@ describe Thor::Options do
     opts.each do |key, value|
       opts[key] = Thor::Option.parse(key, value) unless value.is_a?(Thor::Option)
     end
-
     @opt = Thor::Options.new(opts, defaults, stop_on_unknown)
   end
 
@@ -35,13 +34,17 @@ describe Thor::Options do
       expect(Thor::Options.to_switches(:color => false)).to eq("")
     end
 
+    it "avoids extra spaces" do
+      expect(Thor::Options.to_switches(:color => false, :foo => nil)).to eq("")
+    end
+
     it "writes --name value for anything else" do
       expect(Thor::Options.to_switches(:format => "specdoc")).to eq('--format "specdoc"')
     end
 
     it "joins several values" do
       switches = Thor::Options.to_switches(:color => true, :foo => "bar").split(" ").sort
-      expect(switches).to eq(%w["bar" --color --foo])
+      expect(switches).to eq(%w("bar" --color --foo))
     end
 
     it "accepts arrays" do
@@ -55,12 +58,11 @@ describe Thor::Options do
     it "accepts underscored options" do
       expect(Thor::Options.to_switches(:under_score_option => "foo bar")).to eq('--under_score_option "foo bar"')
     end
-
   end
 
   describe "#parse" do
     it "allows multiple aliases for a given switch" do
-      create %w[--foo --bar --baz] => :string
+      create %w(--foo --bar --baz) => :string
       expect(parse("--foo", "12")["foo"]).to eq("12")
       expect(parse("--bar", "12")["foo"]).to eq("12")
       expect(parse("--baz", "12")["foo"]).to eq("12")
@@ -72,12 +74,12 @@ describe Thor::Options do
     end
 
     it "allows custom short-name aliases" do
-      create %w[--bar -f] => :string
+      create %w(--bar -f) => :string
       expect(parse("-f", "12")).to eq("bar" => "12")
     end
 
     it "accepts conjoined short switches" do
-      create %w[--foo -f] => true, %w[--bar -b] => true, %w[--app -a] => true
+      create %w(--foo -f) => true, %w(--bar -b) => true, %w(--app -a) => true
       opts = parse("-fba")
       expect(opts["foo"]).to be true
       expect(opts["bar"]).to be true
@@ -85,7 +87,7 @@ describe Thor::Options do
     end
 
     it "accepts conjoined short switches with input" do
-      create %w[--foo -f] => true, %w[--bar -b] => true, %w[--app -a] => :required
+      create %w(--foo -f) => true, %w(--bar -b) => true, %w(--app -a) => :required
       opts = parse "-fba", "12"
       expect(opts["foo"]).to be true
       expect(opts["bar"]).to be true
@@ -110,7 +112,11 @@ describe Thor::Options do
     it "raises an error for unknown switches" do
       create :foo => "baz", :bar => :required
       parse("--bar", "baz", "--baz", "unknown")
-      expect { check_unknown! }.to raise_error(Thor::UnknownArgumentError, "Unknown switches '--baz'")
+
+      expected = "Unknown switches \"--baz\""
+      expected << "\nDid you mean?  \"--bar\"" if Thor::Correctable
+
+      expect { check_unknown! }.to raise_error(Thor::UnknownArgumentError, expected)
     end
 
     it "skips leading non-switches" do
@@ -139,31 +145,31 @@ describe Thor::Options do
 
     it "interprets everything after -- as args instead of options" do
       create(:foo => :string, :bar => :required)
-      expect(parse(%w[--bar abc moo -- --foo def -a])).to eq("bar" => "abc")
-      expect(remaining).to eq(%w[moo --foo def -a])
+      expect(parse(%w(--bar abc moo -- --foo def -a))).to eq("bar" => "abc")
+      expect(remaining).to eq(%w(moo --foo def -a))
     end
 
     it "ignores -- when looking for single option values" do
       create(:foo => :string, :bar => :required)
-      expect(parse(%w[--bar -- --foo def -a])).to eq("bar" => "--foo")
-      expect(remaining).to eq(%w[def -a])
+      expect(parse(%w(--bar -- --foo def -a))).to eq("bar" => "--foo")
+      expect(remaining).to eq(%w(def -a))
     end
 
     it "ignores -- when looking for array option values" do
       create(:foo => :array)
-      expect(parse(%w[--foo a b -- c d -e])).to eq("foo" => %w[a b c d -e])
+      expect(parse(%w(--foo a b -- c d -e))).to eq("foo" => %w(a b c d -e))
       expect(remaining).to eq([])
     end
 
     it "ignores -- when looking for hash option values" do
       create(:foo => :hash)
-      expect(parse(%w[--foo a:b -- c:d -e])).to eq("foo" => {"a" => "b", "c" => "d"})
-      expect(remaining).to eq(%w[-e])
+      expect(parse(%w(--foo a:b -- c:d -e))).to eq("foo" => {"a" => "b", "c" => "d"})
+      expect(remaining).to eq(%w(-e))
     end
 
     it "ignores trailing --" do
       create(:foo => :string)
-      expect(parse(%w[--foo --])).to eq("foo" => nil)
+      expect(parse(%w(--foo --))).to eq("foo" => nil)
       expect(remaining).to eq([])
     end
 
@@ -214,39 +220,39 @@ describe Thor::Options do
       end
 
       it "stops parsing on first non-option" do
-        expect(parse(%w[foo --verbose])).to eq({})
-        expect(remaining).to eq(%w[foo --verbose])
+        expect(parse(%w(foo --verbose))).to eq({})
+        expect(remaining).to eq(%w(foo --verbose))
       end
 
       it "stops parsing on unknown option" do
-        expect(parse(%w[--bar --verbose])).to eq({})
-        expect(remaining).to eq(%w[--bar --verbose])
+        expect(parse(%w(--bar --verbose))).to eq({})
+        expect(remaining).to eq(%w(--bar --verbose))
       end
 
       it "retains -- after it has stopped parsing" do
-        expect(parse(%w[--bar -- whatever])).to eq({})
-        expect(remaining).to eq(%w[--bar -- whatever])
+        expect(parse(%w(--bar -- whatever))).to eq({})
+        expect(remaining).to eq(%w(--bar -- whatever))
       end
 
       it "still accepts options that are given before non-options" do
-        expect(parse(%w[--verbose foo])).to eq("verbose" => true)
-        expect(remaining).to eq(%w[foo])
+        expect(parse(%w(--verbose foo))).to eq("verbose" => true)
+        expect(remaining).to eq(%w(foo))
       end
 
       it "still accepts options that require a value" do
-        expect(parse(%w[--foo bar baz])).to eq("foo" => "bar")
-        expect(remaining).to eq(%w[baz])
+        expect(parse(%w(--foo bar baz))).to eq("foo" => "bar")
+        expect(remaining).to eq(%w(baz))
       end
 
       it "still interprets everything after -- as args instead of options" do
-        expect(parse(%w[-- --verbose])).to eq({})
-        expect(remaining).to eq(%w[--verbose])
+        expect(parse(%w(-- --verbose))).to eq({})
+        expect(remaining).to eq(%w(--verbose))
       end
     end
 
     describe "with :string type" do
       before do
-        create %w[--foo -f] => :required
+        create %w(--foo -f) => :required
       end
 
       it "accepts a switch <value> assignment" do
@@ -290,10 +296,16 @@ describe Thor::Options do
       end
 
       it "raises error when value isn't in enum" do
-        enum = %w[apple banana]
+        enum = %w(apple banana)
         create :fruit => Thor::Option.new("fruit", :type => :string, :enum => enum)
         expect { parse("--fruit", "orange") }.to raise_error(Thor::MalformattedArgumentError,
-                                                             "Expected '--fruit' to be one of #{enum.join(', ')}; got orange")
+            "Expected '--fruit' to be one of #{enum.join(', ')}; got orange")
+      end
+
+      it "does not erroneously mutate defaults" do
+        create :foo => Thor::Option.new("foo", :type => :string, :repeatable => true, :required => false, :default => [])
+        expect(parse("--foo=bar", "--foo", "12")["foo"]).to eq(["bar", "12"])
+        expect(@opt.instance_variable_get(:@switches)["--foo"].default).to eq([])
       end
     end
 
@@ -324,6 +336,10 @@ describe Thor::Options do
         expect(parse("--skip-foo")["foo"]).to eq(false)
       end
 
+      it "accepts --[skip-]opt variant, setting false for value, even if there's a trailing non-switch" do
+        expect(parse("--skip-foo", "asdf")["foo"]).to eq(false)
+      end
+
       it "will prefer 'no-opt' variant over inverting 'opt' if explicitly set" do
         create "--no-foo" => true
         expect(parse("--no-foo")["no-foo"]).to eq(true)
@@ -334,6 +350,19 @@ describe Thor::Options do
         expect(parse("--skip-foo")["skip-foo"]).to eq(true)
       end
 
+      it "will prefer 'skip-opt' variant over inverting 'opt' if explicitly set, even if there's a trailing non-switch" do
+        create "--skip-foo" => true
+        expect(parse("--skip-foo", "asdf")["skip-foo"]).to eq(true)
+      end
+
+      it "will prefer 'skip-opt' variant over inverting 'opt' if explicitly set, and given a value" do
+        create "--skip-foo" => true
+        expect(parse("--skip-foo=f")["skip-foo"]).to eq(false)
+        expect(parse("--skip-foo=false")["skip-foo"]).to eq(false)
+        expect(parse("--skip-foo=t")["skip-foo"]).to eq(true)
+        expect(parse("--skip-foo=true")["skip-foo"]).to eq(true)
+      end
+
       it "accepts inputs in the human name format" do
         create :foo_bar => :boolean
         expect(parse("--foo-bar")["foo_bar"]).to eq(true)
@@ -342,9 +371,23 @@ describe Thor::Options do
       end
 
       it "doesn't eat the next part of the param" do
-        create :foo => :boolean
         expect(parse("--foo", "bar")).to eq("foo" => true)
-        expect(@opt.remaining).to eq(%w[bar])
+        expect(@opt.remaining).to eq(%w(bar))
+      end
+
+      it "doesn't eat the next part of the param with 'no-opt' variant" do
+        expect(parse("--no-foo", "bar")).to eq("foo" => false)
+        expect(@opt.remaining).to eq(%w(bar))
+      end
+
+      it "doesn't eat the next part of the param with 'skip-opt' variant" do
+        expect(parse("--skip-foo", "bar")).to eq("foo" => false)
+        expect(@opt.remaining).to eq(%w(bar))
+      end
+
+      it "allows multiple values if repeatable is specified" do
+        create :verbose => Thor::Option.new("verbose", :type => :boolean, :aliases => '-v', :repeatable => true)
+        expect(parse("-v", "-v", "-v")["verbose"].count).to eq(3)
       end
     end
 
@@ -364,6 +407,15 @@ describe Thor::Options do
       it "must not mix values with other switches" do
         expect(parse("--attributes", "name:string", "age:integer", "--baz", "cool")["attributes"]).to eq("name" => "string", "age" => "integer")
       end
+
+      it "must not allow the same hash key to be specified multiple times" do
+        expect { parse("--attributes", "name:string", "name:integer") }.to raise_error(Thor::MalformattedArgumentError, "You can't specify 'name' more than once in option '--attributes'; got name:string and name:integer")
+      end
+
+      it "allows multiple values if repeatable is specified" do
+        create :attributes => Thor::Option.new("attributes", :type => :hash, :repeatable => true)
+        expect(parse("--attributes", "name:one", "foo:1", "--attributes", "name:two", "bar:2")["attributes"]).to eq({"name"=>"two", "foo"=>"1", "bar" => "2"})
+      end
     end
 
     describe "with :array type" do
@@ -372,15 +424,20 @@ describe Thor::Options do
       end
 
       it "accepts a switch=<value> assignment" do
-        expect(parse("--attributes=a", "b", "c")["attributes"]).to eq(%w[a b c])
+        expect(parse("--attributes=a", "b", "c")["attributes"]).to eq(%w(a b c))
       end
 
       it "accepts a switch <value> assignment" do
-        expect(parse("--attributes", "a", "b", "c")["attributes"]).to eq(%w[a b c])
+        expect(parse("--attributes", "a", "b", "c")["attributes"]).to eq(%w(a b c))
       end
 
       it "must not mix values with other switches" do
-        expect(parse("--attributes", "a", "b", "c", "--baz", "cool")["attributes"]).to eq(%w[a b c])
+        expect(parse("--attributes", "a", "b", "c", "--baz", "cool")["attributes"]).to eq(%w(a b c))
+      end
+
+      it "allows multiple values if repeatable is specified" do
+        create :attributes => Thor::Option.new("attributes", :type => :array, :repeatable => true)
+        expect(parse("--attributes", "1", "2", "--attributes", "3", "4")["attributes"]).to eq([["1", "2"], ["3", "4"]])
       end
     end
 
@@ -408,7 +465,11 @@ describe Thor::Options do
         expect { parse("--limit", "3") }.to raise_error(Thor::MalformattedArgumentError,
                                                         "Expected '--limit' to be one of #{enum.join(', ')}; got 3")
       end
-    end
 
+      it "allows multiple values if repeatable is specified" do
+        create :run => Thor::Option.new("run", :type => :numeric, :repeatable => true)
+        expect(parse("--run", "1", "--run", "2")["run"]).to eq([1, 2])
+      end
+    end
   end
 end

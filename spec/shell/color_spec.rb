@@ -7,6 +7,8 @@ describe Thor::Shell::Color do
 
   before do
     allow($stdout).to receive(:tty?).and_return(true)
+    allow(ENV).to receive(:[]).and_return(nil)
+    allow(ENV).to receive(:[]).with("TERM").and_return("ansi")
     allow_any_instance_of(StringIO).to receive(:tty?).and_return(true)
   end
 
@@ -16,7 +18,26 @@ describe Thor::Shell::Color do
       shell.ask "Is this green?", :green
 
       expect(Thor::LineEditor).to receive(:readline).with("\e[32mIs this green? [Yes, No, Maybe] \e[0m", anything).and_return("Yes")
-      shell.ask "Is this green?", :green, :limited_to => %w[Yes No Maybe]
+      shell.ask "Is this green?", :green, :limited_to => %w(Yes No Maybe)
+    end
+
+    it "does not set the color if specified and NO_COLOR is set" do
+      allow(ENV).to receive(:[]).with("NO_COLOR").and_return("")
+      expect(Thor::LineEditor).to receive(:readline).with("Is this green? ", anything).and_return("yes")
+      shell.ask "Is this green?", :green
+
+      expect(Thor::LineEditor).to receive(:readline).with("Is this green? [Yes, No, Maybe] ", anything).and_return("Yes")
+      shell.ask "Is this green?", :green, :limited_to => %w(Yes No Maybe)
+    end
+
+    it "handles an Array of colors" do
+      expect(Thor::LineEditor).to receive(:readline).with("\e[32m\e[47m\e[1mIs this green on white? \e[0m", anything).and_return("yes")
+      shell.ask "Is this green on white?", [:green, :on_white, :bold]
+    end
+
+    it "supports the legacy color syntax" do
+      expect(Thor::LineEditor).to receive(:readline).with("\e[1m\e[34mIs this legacy blue? \e[0m", anything).and_return("yes")
+      shell.ask "Is this legacy blue?", [:blue, true]
     end
   end
 
@@ -38,6 +59,15 @@ describe Thor::Shell::Color do
       expect(out.chomp).to eq("Wow! Now we have colors!")
     end
 
+    it "does not set the color if NO_COLOR is set" do
+      allow(ENV).to receive(:[]).with("NO_COLOR").and_return("")
+      out = capture(:stdout) do
+        shell.say "Wow! Now we have colors!", :green
+      end
+
+      expect(out.chomp).to eq("Wow! Now we have colors!")
+    end
+
     it "does not use a new line even with colors" do
       out = capture(:stdout) do
         shell.say "Wow! Now we have colors! ", :green
@@ -52,6 +82,14 @@ describe Thor::Shell::Color do
       end
 
       expect(out.chomp).to eq("\e[32m\e[41m\e[1mWow! Now we have colors *and* background colors\e[0m")
+    end
+
+    it "supports the legacy color syntax" do
+      out = capture(:stdout) do
+        shell.say "Wow! This still works?", [:blue, true]
+      end
+
+      expect(out.chomp).to eq("\e[1m\e[34mWow! This still works?\e[0m")
     end
   end
 
@@ -95,8 +133,21 @@ describe Thor::Shell::Color do
       expect(colorless).to eq("hi!")
     end
 
-    it "does nothing when the terminal does not support color" do
+    it "does nothing when stdout is not a tty" do
       allow($stdout).to receive(:tty?).and_return(false)
+      colorless = shell.set_color "hi!", :white
+      expect(colorless).to eq("hi!")
+    end
+
+    it "does nothing when the TERM environment variable is set to 'dumb'" do
+      allow(ENV).to receive(:[]).with("TERM").and_return("dumb")
+      colorless = shell.set_color "hi!", :white
+      expect(colorless).to eq("hi!")
+    end
+
+    it "does nothing when the NO_COLOR environment variable is set" do
+      allow(ENV).to receive(:[]).with("NO_COLOR").and_return("")
+      allow($stdout).to receive(:tty?).and_return(true)
       colorless = shell.set_color "hi!", :white
       expect(colorless).to eq("hi!")
     end

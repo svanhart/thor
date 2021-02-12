@@ -17,7 +17,7 @@ describe Thor::Util do
     end
 
     it "returns nil if the namespace can't be found" do
-      expect(Thor::Util.find_by_namespace("thor:core_ext:ordered_hash")).to be nil
+      expect(Thor::Util.find_by_namespace("thor:core_ext:hash_with_indifferent_access")).to be nil
     end
 
     it "returns a class if it matches the namespace" do
@@ -39,7 +39,7 @@ describe Thor::Util do
     end
 
     it "accepts class and module objects" do
-      expect(Thor::Util.namespace_from_thor_class(Thor::CoreExt::OrderedHash)).to eq("thor:core_ext:ordered_hash")
+      expect(Thor::Util.namespace_from_thor_class(Thor::CoreExt::HashWithIndifferentAccess)).to eq("thor:core_ext:hash_with_indifferent_access")
       expect(Thor::Util.namespace_from_thor_class(Thor::Util)).to eq("thor:util")
     end
 
@@ -131,17 +131,17 @@ describe Thor::Util do
     it "returns the *nix system path if file cannot be expanded and separator does not exist" do
       expect(File).to receive(:expand_path).with("~").and_raise(RuntimeError)
       previous_value = File::ALT_SEPARATOR
-      capture(:stderr) { File.const_set(:ALT_SEPARATOR, false) } # rubocop:disable SymbolName
+      capture(:stderr) { File.const_set(:ALT_SEPARATOR, false) }
       expect(Thor::Util.user_home).to eq("/")
-      capture(:stderr) { File.const_set(:ALT_SEPARATOR, previous_value) } # rubocop:disable SymbolName
+      capture(:stderr) { File.const_set(:ALT_SEPARATOR, previous_value) }
     end
 
     it "returns the windows system path if file cannot be expanded and a separator exists" do
       expect(File).to receive(:expand_path).with("~").and_raise(RuntimeError)
       previous_value = File::ALT_SEPARATOR
-      capture(:stderr) { File.const_set(:ALT_SEPARATOR, true) } # rubocop:disable SymbolName
+      capture(:stderr) { File.const_set(:ALT_SEPARATOR, true) }
       expect(Thor::Util.user_home).to eq("C:/")
-      capture(:stderr) { File.const_set(:ALT_SEPARATOR, previous_value) } # rubocop:disable SymbolName
+      capture(:stderr) { File.const_set(:ALT_SEPARATOR, previous_value) }
     end
 
     it "returns HOME/.thor if set" do
