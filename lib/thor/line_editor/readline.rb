@@ -46,7 +46,7 @@ class Thor
       def use_path_completion?
         options.fetch(:path, false)
       end
-        
+
       class PathCompletion
         attr_reader :text
         private :text
@@ -60,7 +60,7 @@ class Thor
           matches = Array.new
           matches << relative_matches
           @additional_paths.each { |path| matches << relative_matches(path)} unless @additional_paths.nil?
-          
+
           matches.flatten
         end
 
